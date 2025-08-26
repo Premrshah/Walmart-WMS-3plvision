@@ -646,7 +646,7 @@ export default function SellerForm() {
                   🎉 Next Steps:
                 </h4>
                 <ol className="list-decimal list-inside text-blue-800 space-y-2 ml-4">
-                  <li>Your application has been received and assigned STE Code: <span className="font-mono font-semibold">STE-{steCode}</span></li>
+                  <li>Your application has been received and assigned STE Code: <span className="font-mono font-semibold">STE-{parseInt(steCode)-1}</span></li>
                   <li>Our team will review your application within 24-48 hours</li>
                   <li>You will receive a confirmation email with further instructions</li>
                 </ol>

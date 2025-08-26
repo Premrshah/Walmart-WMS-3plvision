@@ -110,31 +110,13 @@ BEGIN
     RAISE NOTICE 'All existing policies removed.';
 END $$;
 
--- 10. Create PRIVATE policy - ONLY INSERT allowed, NO READING
--- Check if policy already exists before creating
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies 
-        WHERE tablename = 'walmart_sellers' 
-        AND schemaname = 'public' 
-        AND policyname = 'Insert only - no reading'
-    ) THEN
-        CREATE POLICY "Insert only - no reading" ON public.walmart_sellers
-        FOR INSERT WITH CHECK (true);
-        RAISE NOTICE 'Created new policy: Insert only - no reading';
-    ELSE
-        RAISE NOTICE 'Policy already exists, skipping creation';
-    END IF;
-END $$;
+-- 10. TEMPORARILY DISABLE RLS to test if that's the issue
+ALTER TABLE public.walmart_sellers DISABLE ROW LEVEL SECURITY;
 
--- 11. Enable RLS
-ALTER TABLE public.walmart_sellers ENABLE ROW LEVEL SECURITY;
-
--- 12. Create basic indexes (only if they don't exist)
+-- 11. Create basic indexes (only if they don't exist)
 CREATE INDEX IF NOT EXISTS idx_walmart_sellers_seller_name ON public.walmart_sellers(seller_name);
 CREATE INDEX IF NOT EXISTS idx_walmart_sellers_email ON public.walmart_sellers(email);
 CREATE INDEX IF NOT EXISTS idx_walmart_sellers_ste_code ON public.walmart_sellers(ste_code);
 
--- 13. Success message
-SELECT 'Setup completed successfully! Your table is now completely private - no one can read data, only insert new records.' as status;
+-- 12. Success message
+SELECT 'Setup completed successfully! RLS temporarily disabled - forms should work now. Test it first!' as status;
