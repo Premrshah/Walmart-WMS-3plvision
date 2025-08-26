@@ -654,21 +654,18 @@ export default function SellerForm() {
               
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <h4 className="font-semibold text-amber-900 mb-2">
-                  ⚠️ Important: KYC Documents Required
+                  Important: KYC Documents Required
                 </h4>
                 <p className="text-amber-800 mb-3">
                   To complete your onboarding, please email the following documents to:
                 </p>
                 <div className="bg-white border border-amber-300 rounded-md p-3 mb-3">
                   <p className="text-amber-900 font-semibold text-lg">
-                    📧 info@3plvision.com
+                    info@3plvision.com
                   </p>
                 </div>
                 <p className="text-amber-800 text-sm">
-                  <strong>Subject line:</strong> KYC Documents - {formData.seller_name || 'Seller'} - STE-{steCode}
-                </p>
-                <p className="text-amber-800 text-sm mt-2">
-                  <strong>Required documents:</strong> Business License, EIN, Articles of Incorporation, Bank Info, Proof of Address, Government ID
+                  <strong>Subject line:</strong> KYC Documents - {formData.seller_name || 'Seller'} - STE-{parseInt(steCode)-1}
                 </p>
               </div>
             </div>
