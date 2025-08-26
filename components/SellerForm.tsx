@@ -60,7 +60,7 @@ export default function SellerForm() {
     fetchSteCode()
   }, [supabase])
 
-  // Security: Input sanitization function
+  // Security: Input sanitization function - only sanitize on submit, not on every keystroke
   const sanitizeInput = (input: string): string => {
     if (typeof input !== 'string') return ''
     // Remove potentially dangerous characters and limit length
@@ -69,16 +69,15 @@ export default function SellerForm() {
       .replace(/javascript:/gi, '') // Remove javascript: protocol
       .replace(/data:/gi, '') // Remove data: protocol
       .substring(0, 1000) // Limit length to prevent buffer overflow
-      .trim()
+      .trim() // Safe to trim now since we only call this on submission
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
-    // Security: Sanitize input before setting state
-    const sanitizedValue = sanitizeInput(value)
+    // Don't sanitize on every keystroke - only store the raw input
     setFormData(prev => ({
       ...prev,
-      [name]: sanitizedValue
+      [name]: value
     }))
   }
 
@@ -109,9 +108,17 @@ export default function SellerForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
+    // Security: Sanitize all form data before submission
+    const sanitizedFormData = Object.fromEntries(
+      Object.entries(formData).map(([key, value]) => [
+        key, 
+        typeof value === 'string' ? sanitizeInput(value) : value
+      ])
+    )
+    
     // Security: Validate required fields on client side
     const requiredFields = ['seller_name', 'contact_name', 'email', 'primary_phone', 'business_name', 'address', 'city', 'state', 'zipcode', 'country', 'store_type']
-    const missingFields = requiredFields.filter(field => !formData[field as keyof Seller] || formData[field as keyof Seller]?.toString().trim() === '')
+    const missingFields = requiredFields.filter(field => !sanitizedFormData[field as keyof Seller] || sanitizedFormData[field as keyof Seller]?.toString().trim() === '')
     
     if (missingFields.length > 0) {
       setSubmitStatus('error')
@@ -120,13 +127,13 @@ export default function SellerForm() {
     }
 
     // Security: Additional validation
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    if (sanitizedFormData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sanitizedFormData.email)) {
       setSubmitStatus('error')
       setErrorMessage('Please enter a valid email address')
       return
     }
 
-    if (formData.seller_logo && !formData.seller_logo.startsWith('http')) {
+    if (sanitizedFormData.seller_logo && !sanitizedFormData.seller_logo.startsWith('http')) {
       setSubmitStatus('error')
       setErrorMessage('Logo URL must start with http:// or https://')
       return
@@ -135,8 +142,8 @@ export default function SellerForm() {
     if (!supabase) {
       // Demo mode - just log the data to console
       const demoData = {
-        ...formData,
-        walmart_address: `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
+        ...sanitizedFormData,
+        walmart_address: `${sanitizedFormData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
       }
       console.log('Form submitted (Demo Mode - Supabase not configured):', demoData)
       setShowSuccessModal(true)
@@ -170,8 +177,8 @@ export default function SellerForm() {
     try {
       // Security: Create submission data with auto-generated Walmart address
       const submissionData = {
-        ...formData,
-        walmart_address: `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
+        ...sanitizedFormData,
+        walmart_address: `${sanitizedFormData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
       }
 
       const { data, error } = await supabase
@@ -228,7 +235,7 @@ export default function SellerForm() {
               3PLVision Seller Onboarding
             </h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Complete your seller profile to start selling on Walmart Marketplace
+              Complete your seller profile to start setting up returns management on Walmart Marketplace
             </p>
           </div>
 

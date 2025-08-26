@@ -39,13 +39,28 @@ ALTER COLUMN walmart_address SET NOT NULL;
 DROP SEQUENCE IF EXISTS ste_code_sequence;
 CREATE SEQUENCE ste_code_sequence START 1;
 
--- 5. Update existing rows with STE codes
-UPDATE public.walmart_sellers 
-SET ste_code = '9000' || nextval('ste_code_sequence')
-WHERE ste_code IS NULL OR ste_code = '';
-
--- Reset sequence
-SELECT setval('ste_code_sequence', (SELECT COUNT(*) FROM public.walmart_sellers));
+-- 5. Update existing rows with STE codes and reset sequence safely
+DO $$
+DECLARE
+    row_count INTEGER;
+BEGIN
+    -- Get current row count
+    SELECT COUNT(*) INTO row_count FROM public.walmart_sellers;
+    
+    -- Only update and reset sequence if table has rows
+    IF row_count > 0 THEN
+        -- Update existing rows with STE codes
+        UPDATE public.walmart_sellers 
+        SET ste_code = '9000' || nextval('ste_code_sequence')
+        WHERE ste_code IS NULL OR ste_code = '';
+        
+        -- Reset sequence to continue from where we left off
+        PERFORM setval('ste_code_sequence', row_count);
+        RAISE NOTICE 'Updated % rows with STE codes and reset sequence', row_count;
+    ELSE
+        RAISE NOTICE 'Table is empty, no rows to update. Sequence starts at 1.';
+    END IF;
+END $$;
 
 -- 6. Create function to auto-generate STE codes
 CREATE OR REPLACE FUNCTION generate_ste_code()
