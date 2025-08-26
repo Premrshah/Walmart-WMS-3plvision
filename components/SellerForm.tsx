@@ -578,15 +578,12 @@ export default function SellerForm() {
                       </p>
                       <ul className="list-disc list-inside text-blue-800 space-y-1 ml-4">
                         <li>Business License</li>
-                        <li>Tax Identification Number (EIN/SSN)</li>
-                        <li>Articles of Incorporation (if applicable)</li>
-                        <li>Bank Account Information</li>
-                        <li>Proof of Address</li>
-                        <li>Government-issued ID for authorized signers</li>
+                        <li>GST Registration/Certificates</li>
+                        <li>Aadhar Card of Owner/Director</li>
                       </ul>
                       <div className="bg-white border border-blue-300 rounded-md p-4 mt-4">
                         <p className="text-blue-900 font-medium mb-2">
-                          📧 Send all KYC documents to:
+                          Send all KYC documents to:
                         </p>
                         <p className="text-blue-800 text-lg font-semibold">
                           info@3plvision.com
