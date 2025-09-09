@@ -11,18 +11,26 @@ export async function GET(request: NextRequest) {
     const state = searchParams.get('state') // This contains userId and form data
     const error = searchParams.get('error')
 
-    // Debug logging for Vercel troubleshooting
-    console.log('🔍 Dropbox Callback Debug:', {
-      url: request.url,
-      code: code ? 'PRESENT' : 'MISSING',
-      state: state ? 'PRESENT' : 'MISSING',
-      error: error || 'NONE',
-      environment: process.env.NODE_ENV
-    })
 
     // Parse state parameter to extract userId and form data
     let userId: string
-    let formData: { seller_name: string, email: string, ste_code: string } | null = null
+    let formData: { 
+      seller_name: string, 
+      email: string, 
+      ste_code: string,
+      business_name?: string,
+      contact_name?: string,
+      primary_phone?: string,
+      seller_logo?: string,
+      address?: string,
+      city?: string,
+      state?: string,
+      zipcode?: string,
+      country?: string,
+      store_type?: string,
+      comments?: string,
+      walmart_address?: string
+    } | null = null
     
     try {
       const stateData = JSON.parse(decodeURIComponent(state || ''))
@@ -30,9 +38,22 @@ export async function GET(request: NextRequest) {
       formData = {
         seller_name: stateData.seller_name,
         email: stateData.email,
-        ste_code: stateData.ste_code
+        ste_code: stateData.ste_code,
+        business_name: stateData.business_name,
+        contact_name: stateData.contact_name,
+        primary_phone: stateData.primary_phone,
+        seller_logo: stateData.seller_logo,
+        address: stateData.address,
+        city: stateData.city,
+        state: stateData.state,
+        zipcode: stateData.zipcode,
+        country: stateData.country,
+        store_type: stateData.store_type,
+        comments: stateData.comments,
+        walmart_address: stateData.walmart_address
       }
-    } catch {
+    } catch (error) {
+      console.error('Failed to parse state data:', error)
       // Fallback to treating state as just userId
       userId = state || ''
     }
@@ -85,21 +106,74 @@ export async function GET(request: NextRequest) {
           
                       if (resp.ok && data.url) {
                         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-                        const redirectUrl = `${baseUrl}/?dropbox_auth=success&upload_url=${encodeURIComponent(data.url)}`
-                        console.log('🔍 Redirecting to:', redirectUrl)
+                        // Include form data in redirect URL to preserve form state
+                        const formDataParams = new URLSearchParams({
+                          seller_name: formData.seller_name || '',
+                          email: formData.email || '',
+                          ste_code: formData.ste_code || '',
+                          business_name: formData.business_name || '',
+                          address: formData.address || '',
+                          city: formData.city || '',
+                          state: formData.state || '',
+                          zipcode: formData.zipcode || '',
+                          country: formData.country || '',
+                          store_type: formData.store_type || '',
+                          comments: formData.comments || '',
+                          seller_logo: formData.seller_logo || '',
+                          contact_name: formData.contact_name || '',
+                          primary_phone: formData.primary_phone || '',
+                          walmart_address: formData.walmart_address || ''
+                        }).toString()
+                        const redirectUrl = `${baseUrl}/?dropbox_auth=success&upload_url=${encodeURIComponent(data.url)}&${formDataParams}`
                         // Redirect back to form with success parameter and store the upload URL
                         return NextResponse.redirect(redirectUrl)
                       } else {
                         console.error('Failed to create file request:', data)
                         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-                        const redirectUrl = `${baseUrl}/?error=file_request_failed&message=${encodeURIComponent(data?.error_summary || 'Failed to create file request')}`
-                        console.log('🔍 Error redirect to:', redirectUrl)
+                        // Include form data in error redirect as well
+                        const formDataParams = new URLSearchParams({
+                          seller_name: formData.seller_name || '',
+                          email: formData.email || '',
+                          ste_code: formData.ste_code || '',
+                          business_name: formData.business_name || '',
+                          address: formData.address || '',
+                          city: formData.city || '',
+                          state: formData.state || '',
+                          zipcode: formData.zipcode || '',
+                          country: formData.country || '',
+                          store_type: formData.store_type || '',
+                          comments: formData.comments || '',
+                          seller_logo: formData.seller_logo || '',
+                          contact_name: formData.contact_name || '',
+                          primary_phone: formData.primary_phone || '',
+                          walmart_address: formData.walmart_address || ''
+                        }).toString()
+                        const redirectUrl = `${baseUrl}/?error=file_request_failed&message=${encodeURIComponent(data?.error_summary || 'Failed to create file request')}&${formDataParams}`
                         return NextResponse.redirect(redirectUrl)
                       }
         } catch (fileRequestError) {
           console.error('Error creating file request:', fileRequestError)
           const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-          return NextResponse.redirect(`${baseUrl}/?error=file_request_error&message=${encodeURIComponent(fileRequestError instanceof Error ? fileRequestError.message : 'Unknown error')}`)
+          // Include form data in error redirect as well
+          const formDataParams = formData ? new URLSearchParams({
+            seller_name: formData.seller_name || '',
+            email: formData.email || '',
+            ste_code: formData.ste_code || '',
+            business_name: formData.business_name || '',
+            address: formData.address || '',
+            city: formData.city || '',
+            state: formData.state || '',
+            zipcode: formData.zipcode || '',
+            country: formData.country || '',
+            store_type: formData.store_type || '',
+            comments: formData.comments || '',
+            seller_logo: formData.seller_logo || '',
+            contact_name: formData.contact_name || '',
+            primary_phone: formData.primary_phone || '',
+            walmart_address: formData.walmart_address || ''
+          }).toString() : ''
+          const redirectUrl = `${baseUrl}/?error=file_request_error&message=${encodeURIComponent(fileRequestError instanceof Error ? fileRequestError.message : 'Unknown error')}${formDataParams ? '&' + formDataParams : ''}`
+          return NextResponse.redirect(redirectUrl)
         }
       } else {
         // No form data, redirect back to form with success message
