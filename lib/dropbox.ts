@@ -23,27 +23,18 @@ const userTokens = new Map<string, UserToken>()
  * Generate Dropbox OAuth authorization URL
  * This redirects the user to Dropbox to authorize the app
  */
-export function getDropboxAuthUrl(userId: string, formData?: { 
-  seller_name: string, 
-  email: string, 
-  ste_code: string,
-  business_name?: string,
-  contact_name?: string,
-  primary_phone?: string,
-  seller_logo?: string,
-  address?: string,
-  city?: string,
-  state?: string,
-  zipcode?: string,
-  country?: string,
-  store_type?: string,
-  comments?: string,
-  walmart_address?: string
-}): string {
+export function getDropboxAuthUrl(userId: string, formData?: { seller_name: string, email: string, ste_code: string }): string {
   const appKey = process.env.DROPBOX_APP_KEY
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const redirectUri = process.env.DROPBOX_REDIRECT_URI || `${baseUrl}/api/dropbox/callback`
   
+  // Debug logging for Vercel troubleshooting
+  console.log('🔍 Dropbox Auth URL Debug:', {
+    appKey: appKey ? 'SET' : 'MISSING',
+    baseUrl,
+    redirectUri,
+    environment: process.env.NODE_ENV
+  })
   
   if (!appKey) {
     throw new Error('Missing DROPBOX_APP_KEY environment variable')
@@ -56,19 +47,7 @@ export function getDropboxAuthUrl(userId: string, formData?: {
       userId,
       seller_name: formData.seller_name,
       email: formData.email,
-      ste_code: formData.ste_code,
-      business_name: formData.business_name,
-      contact_name: formData.contact_name,
-      primary_phone: formData.primary_phone,
-      seller_logo: formData.seller_logo,
-      address: formData.address,
-      city: formData.city,
-      state: formData.state,
-      zipcode: formData.zipcode,
-      country: formData.country,
-      store_type: formData.store_type,
-      comments: formData.comments,
-      walmart_address: formData.walmart_address
+      ste_code: formData.ste_code
     }
     state = encodeURIComponent(JSON.stringify(stateData))
   }

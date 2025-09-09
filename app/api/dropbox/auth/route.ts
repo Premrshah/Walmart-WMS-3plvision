@@ -6,47 +6,13 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    const { 
-      userId, 
-      seller_name, 
-      email, 
-      ste_code,
-      business_name,
-      contact_name,
-      primary_phone,
-      seller_logo,
-      address,
-      city,
-      state,
-      zipcode,
-      country,
-      store_type,
-      comments,
-      walmart_address
-    } = await request.json()
-    
+    const { userId, seller_name, email, ste_code } = await request.json()
     
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
     }
 
-    const authUrl = getDropboxAuthUrl(userId, { 
-      seller_name, 
-      email, 
-      ste_code,
-      business_name,
-      contact_name,
-      primary_phone,
-      seller_logo,
-      address,
-      city,
-      state,
-      zipcode,
-      country,
-      store_type,
-      comments,
-      walmart_address
-    })
+    const authUrl = getDropboxAuthUrl(userId, { seller_name, email, ste_code })
     
     return NextResponse.json({ authUrl })
   } catch (error) {

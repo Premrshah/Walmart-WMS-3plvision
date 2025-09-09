@@ -41,7 +41,7 @@ export default function SellerForm() {
   const [isCreatingKyc, setIsCreatingKyc] = useState<boolean>(false)
   const [pendingKycRequest, setPendingKycRequest] = useState<{userId: string, formData: any} | null>(null)
 
-  // Handle Dropbox auth success first
+  // Check for Dropbox authentication success
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search)
@@ -55,6 +55,9 @@ export default function SellerForm() {
           setKycLink(decodeURIComponent(uploadUrl))
         }
         
+        // Clear the URL parameter
+        window.history.replaceState({}, document.title, window.location.pathname)
+        
         // If there's a pending KYC request, retry it
         if (pendingKycRequest) {
           setTimeout(() => {
@@ -65,62 +68,6 @@ export default function SellerForm() {
       }
     }
   }, [pendingKycRequest])
-
-  // Handle form data restoration separately
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search)
-      
-      // Check if we have form data in URL parameters
-      const urlFormData = {
-        seller_name: urlParams.get('seller_name') || '',
-        email: urlParams.get('email') || '',
-        ste_code: urlParams.get('ste_code') || '',
-        business_name: urlParams.get('business_name') || '',
-        address: urlParams.get('address') || '',
-        city: urlParams.get('city') || '',
-        state: urlParams.get('state') || '',
-        zipcode: urlParams.get('zipcode') || '',
-        country: urlParams.get('country') || '',
-        store_type: urlParams.get('store_type') || '',
-        comments: urlParams.get('comments') || '',
-        seller_logo: urlParams.get('seller_logo') || '',
-        contact_name: urlParams.get('contact_name') || '',
-        primary_phone: urlParams.get('primary_phone') || '',
-        walmart_address: urlParams.get('walmart_address') || ''
-      }
-      
-      // Only restore if we have meaningful data
-      const hasFormData = Object.values(urlFormData).some(value => value.trim() !== '')
-      
-      if (hasFormData) {
-        setFormData(prev => ({
-          ...prev,
-          seller_name: urlFormData.seller_name || prev.seller_name,
-          email: urlFormData.email || prev.email,
-          ste_code: urlFormData.ste_code || prev.ste_code,
-          business_name: urlFormData.business_name || prev.business_name,
-          primary_phone: urlFormData.primary_phone || prev.primary_phone,
-          address: urlFormData.address || prev.address,
-          city: urlFormData.city || prev.city,
-          state: urlFormData.state || prev.state,
-          zipcode: urlFormData.zipcode || prev.zipcode,
-          country: urlFormData.country || prev.country,
-          store_type: urlFormData.store_type || prev.store_type,
-          comments: urlFormData.comments || prev.comments,
-          seller_logo: urlFormData.seller_logo || prev.seller_logo,
-          contact_name: urlFormData.contact_name || prev.contact_name,
-          walmart_address: urlFormData.walmart_address || prev.walmart_address
-        }))
-        
-        // Clean up URL parameters after restoring form data
-        const newUrl = new URL(window.location.href)
-        newUrl.search = '' // Clear all search parameters
-        window.history.replaceState({}, '', newUrl.toString())
-      }
-    }
-  }, []) // Run only once on mount
-
   
   // PDF and signature states
   const [signatureData, setSignatureData] = useState<string | null>(null)
@@ -213,22 +160,8 @@ export default function SellerForm() {
         seller_name: formData.seller_name,
         email: formData.email,
         ste_code: steCode,
-        userId,
-        // Include all form data for complete restoration
-        business_name: formData.business_name,
-        contact_name: formData.contact_name,
-        primary_phone: formData.primary_phone,
-        seller_logo: formData.seller_logo,
-        address: formData.address,
-        city: formData.city,
-        state: formData.state,
-        zipcode: formData.zipcode,
-        country: formData.country,
-        store_type: formData.store_type,
-        comments: formData.comments,
-        walmart_address: formData.walmart_address
+        userId
       }
-      
       
       const r = await fetch('/api/kyc/file-request', {
         method: 'POST',
@@ -290,19 +223,7 @@ export default function SellerForm() {
           userId,
           seller_name: formData.seller_name,
           email: formData.email,
-          ste_code: steCode,
-          business_name: formData.business_name,
-          contact_name: formData.contact_name,
-          primary_phone: formData.primary_phone,
-          seller_logo: formData.seller_logo,
-          address: formData.address,
-          city: formData.city,
-          state: formData.state,
-          zipcode: formData.zipcode,
-          country: formData.country,
-          store_type: formData.store_type,
-          comments: formData.comments,
-          walmart_address: formData.walmart_address
+          ste_code: steCode
         })
       })
       
