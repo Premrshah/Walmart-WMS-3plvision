@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getValidUserToken, isUserAuthenticated } from '@/lib/dropbox'
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: Request) {
   try {
     console.log('KYC file request API called')

@@ -28,6 +28,14 @@ export function getDropboxAuthUrl(userId: string, formData?: { seller_name: stri
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const redirectUri = process.env.DROPBOX_REDIRECT_URI || `${baseUrl}/api/dropbox/callback`
   
+  // Debug logging for Vercel troubleshooting
+  console.log('🔍 Dropbox Auth URL Debug:', {
+    appKey: appKey ? 'SET' : 'MISSING',
+    baseUrl,
+    redirectUri,
+    environment: process.env.NODE_ENV
+  })
+  
   if (!appKey) {
     throw new Error('Missing DROPBOX_APP_KEY environment variable')
   }

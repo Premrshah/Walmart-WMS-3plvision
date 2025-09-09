@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDropboxAuthUrl } from '@/lib/dropbox'
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const { userId, seller_name, email, ste_code } = await request.json()

@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForToken, getValidUserToken } from '@/lib/dropbox'
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
     const state = searchParams.get('state') // This contains userId and form data
     const error = searchParams.get('error')
+
+    // Debug logging for Vercel troubleshooting
+    console.log('🔍 Dropbox Callback Debug:', {
+      url: request.url,
+      code: code ? 'PRESENT' : 'MISSING',
+      state: state ? 'PRESENT' : 'MISSING',
+      error: error || 'NONE',
+      environment: process.env.NODE_ENV
+    })
 
     // Parse state parameter to extract userId and form data
     let userId: string
@@ -71,15 +83,19 @@ export async function GET(request: NextRequest) {
           
           const data = await resp.json()
           
-          if (resp.ok && data.url) {
-            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-            // Redirect back to form with success parameter and store the upload URL
-            return NextResponse.redirect(`${baseUrl}/?dropbox_auth=success&upload_url=${encodeURIComponent(data.url)}`)
-          } else {
-            console.error('Failed to create file request:', data)
-            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-            return NextResponse.redirect(`${baseUrl}/?error=file_request_failed&message=${encodeURIComponent(data?.error_summary || 'Failed to create file request')}`)
-          }
+                      if (resp.ok && data.url) {
+                        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+                        const redirectUrl = `${baseUrl}/?dropbox_auth=success&upload_url=${encodeURIComponent(data.url)}`
+                        console.log('🔍 Redirecting to:', redirectUrl)
+                        // Redirect back to form with success parameter and store the upload URL
+                        return NextResponse.redirect(redirectUrl)
+                      } else {
+                        console.error('Failed to create file request:', data)
+                        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+                        const redirectUrl = `${baseUrl}/?error=file_request_failed&message=${encodeURIComponent(data?.error_summary || 'Failed to create file request')}`
+                        console.log('🔍 Error redirect to:', redirectUrl)
+                        return NextResponse.redirect(redirectUrl)
+                      }
         } catch (fileRequestError) {
           console.error('Error creating file request:', fileRequestError)
           const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'

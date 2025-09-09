@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const { 
