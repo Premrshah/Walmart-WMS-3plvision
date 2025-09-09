@@ -501,7 +501,7 @@ export async function POST(req: Request) {
     }
     
     // Otherwise, return PDF for direct download
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="3PL-Agreement-${seller_name || 'Seller'}-STE-${ste_code || 'XXXX'}.pdf"`,

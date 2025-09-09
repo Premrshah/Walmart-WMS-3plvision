@@ -33,41 +33,11 @@ export default function SellerForm() {
 
   // Stepper states
   const [currentStep, setCurrentStep] = useState<number>(1)
-  const [kycLink, setKycLink] = useState<string>('')
-  const [kycUploaded, setKycUploaded] = useState<boolean>(false)
-  const [dropboxAuthSuccess, setDropboxAuthSuccess] = useState<boolean>(false)
+  const [kycUploaded, setKycUploaded] = useState<boolean>(false) // Default unchecked - user must confirm upload
   const [agreementAccepted, setAgreementAccepted] = useState<boolean>(false)
   const [agreementButtonClicked, setAgreementButtonClicked] = useState<boolean>(false)
-  const [isCreatingKyc, setIsCreatingKyc] = useState<boolean>(false)
-  const [pendingKycRequest, setPendingKycRequest] = useState<{userId: string, formData: any} | null>(null)
 
-  // Check for Dropbox authentication success
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search)
-      
-      if (urlParams.get('dropbox_auth') === 'success') {
-        setDropboxAuthSuccess(true)
-        
-        // Check if there's an upload URL from the callback
-        const uploadUrl = urlParams.get('upload_url')
-        if (uploadUrl) {
-          setKycLink(decodeURIComponent(uploadUrl))
-        }
-        
-        // Clear the URL parameter
-        window.history.replaceState({}, document.title, window.location.pathname)
-        
-        // If there's a pending KYC request, retry it
-        if (pendingKycRequest) {
-          setTimeout(() => {
-            createKycRequestWithData(pendingKycRequest.userId, pendingKycRequest.formData)
-            setPendingKycRequest(null)
-          }, 1000)
-        }
-      }
-    }
-  }, [pendingKycRequest])
+
   
   // PDF and signature states
   const [signatureData, setSignatureData] = useState<string | null>(null)
@@ -136,121 +106,17 @@ export default function SellerForm() {
     sessionStorage.setItem('signatureData', JSON.stringify(signatureData))
     sessionStorage.setItem('submittedFormData', JSON.stringify(formData))
     
-    // Redirect to confirmation page
-    window.location.href = `/confirmation?sellerName=${encodeURIComponent(sellerName)}&steCode=${steCode}`
-  }
-
-  // Check if all required fields are filled
-  const areRequiredFieldsFilled = () => {
-    const requiredFields = ['seller_name', 'contact_name', 'email', 'primary_phone', 'business_name', 'address', 'city', 'state', 'zipcode', 'country', 'store_type']
-    return requiredFields.every(field => {
-      const value = formData[field as keyof Seller]
-      return value && value.toString().trim() !== ''
+    console.log('Session storage set:', {
+      sellerName,
+      steCode,
+      hasSignatureData: !!signatureData,
+      hasFormData: !!formData
     })
+    
+    // Redirect to confirmation page without URL parameters
+    window.location.href = '/confirmation'
   }
 
-  const createKycRequest = async () => {
-    try {
-      setIsCreatingKyc(true)
-      
-      // Generate a unique user ID for this session (in production, use actual user ID)
-      const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      
-      const requestData = {
-        seller_name: formData.seller_name,
-        email: formData.email,
-        ste_code: steCode,
-        userId
-      }
-      
-      const r = await fetch('/api/kyc/file-request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData)
-      })
-      const json = await r.json()
-      
-      if (!r.ok) {
-        if (json.requiresAuth) {
-          // User needs to authenticate with Dropbox - store the request for later
-          setPendingKycRequest({ userId, formData: requestData })
-          await initiateDropboxAuth(userId)
-          return
-        }
-        console.error('Dropbox error:', json?.error)
-        return
-      }
-      
-      setKycLink(json.url)
-      console.log({ step: 'kyc_file_request_created', url: json.url, destination: json.destination })
-    } catch (e) {
-      console.error('Failed to create KYC request', e)
-    } finally {
-      setIsCreatingKyc(false)
-    }
-  }
-
-  const createKycRequestWithData = async (userId: string, requestData: any) => {
-    try {
-      setIsCreatingKyc(true)
-      
-      const r = await fetch('/api/kyc/file-request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData)
-      })
-      const json = await r.json()
-      
-      if (!r.ok) {
-        console.error('Dropbox error after auth:', json?.error)
-        return
-      }
-      
-      setKycLink(json.url)
-    } catch (e) {
-      console.error('Failed to create KYC request after auth', e)
-    } finally {
-      setIsCreatingKyc(false)
-    }
-  }
-
-  const initiateDropboxAuth = async (userId: string) => {
-    try {
-      const response = await fetch('/api/dropbox/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId,
-          seller_name: formData.seller_name,
-          email: formData.email,
-          ste_code: steCode
-        })
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to initiate Dropbox authentication')
-      }
-      
-      const { authUrl } = await response.json()
-      
-      // Open Dropbox authorization in a new window
-      const authWindow = window.open(authUrl, 'dropbox-auth', 'width=600,height=700,scrollbars=yes,resizable=yes')
-      
-      // Listen for the window to close or receive a message
-      const checkClosed = setInterval(() => {
-        if (authWindow?.closed) {
-          clearInterval(checkClosed)
-          // Check if authentication was successful by trying the file request again
-          setTimeout(() => {
-            createKycRequest()
-          }, 1000)
-        }
-      }, 1000)
-      
-    } catch (error) {
-      console.error('Failed to initiate Dropbox authentication:', error)
-    }
-  }
 
   const generatePdf = async () => {
     try {
@@ -481,11 +347,10 @@ export default function SellerForm() {
       // Update STE code for next submission
       const currentSteCode = parseInt(steCode) || 9001
       setSteCode((currentSteCode + 1).toString())
-      // Reset stepper for next run
-      setCurrentStep(1)
-      setKycLink('')
-      setKycUploaded(false)
-      setAgreementAccepted(false)
+    // Reset stepper for next run
+    setCurrentStep(1)
+    setKycUploaded(false)
+    setAgreementAccepted(false)
       setAgreementButtonClicked(false)
       setSignatureData(null)
       setPdfGenerated(false)
@@ -538,7 +403,6 @@ export default function SellerForm() {
       const currentSteCode = parseInt(steCode) || 9001
       setSteCode((currentSteCode + 1).toString())
       setCurrentStep(1)
-      setKycLink('')
       setKycUploaded(false)
       setAgreementAccepted(false)
       setAgreementButtonClicked(false)
@@ -878,118 +742,64 @@ export default function SellerForm() {
                 </div>
               </div>
 
-              {/* KYC Documents Section */}
-              <div className="space-y-6">
-                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-                  <Upload className="w-6 h-6 text-blue-600" />
-                  KYC Documents Required
-                </h2>
-                
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-blue-600 text-sm font-semibold">!</span>
-                    </div>
-                    <div className="space-y-3">
-                      <h3 className="text-lg font-semibold text-blue-900">
-                        Important: KYC Documents Required
-                      </h3>
-                      <p className="text-blue-800">
-                        After submitting your application, you will need to provide the following KYC (Know Your Customer) documents to complete your onboarding:
-                      </p>
-                      <ul className="list-disc list-inside text-blue-800 space-y-1 ml-4">
-                        <li>Business License</li>
-                        <li>GST Registration/Certificates</li>
-                        <li>Aadhar Card of Owner/Director</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* KYC Upload Step (Dropbox) */}
-              <div className="space-y-6">
-                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-                  <Upload className="w-6 h-6 text-blue-600" />
-                  KYC Upload
-                </h2>
-
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                  {dropboxAuthSuccess && !kycLink && (
-                    <div className="mb-4 p-3 bg-green-100 border border-green-300 rounded-md">
-                      <p className="text-green-800 text-sm font-medium">
-                        ✅ Successfully connected to Dropbox! You can now upload your documents directly to your Dropbox folder or click "I've uploaded my KYC docs" to proceed.
-                      </p>
-                    </div>
-                  )}
-                  {kycLink && (
-                    <div className="mb-4 p-3 bg-green-100 border border-green-300 rounded-md">
-                      <p className="text-green-800 text-sm font-medium">
-                        🎉 Upload link created successfully! Click "Open Upload Link" to upload your documents.
-                      </p>
-                    </div>
-                  )}
-                  <div className="text-blue-900 mb-4">
-                    <p className="font-semibold mb-2">📋 KYC Document Upload Instructions:</p>
-                    <ul className="text-sm space-y-1 ml-4">
-                      <li>• <strong>Step 1:</strong> Click "Get KYC Upload Link" to authorize with Dropbox and generate your secure upload folder</li>
-                      <li>• <strong>Step 2:</strong> Complete the Dropbox authorization in the popup window</li>
-                      <li>• <strong>Step 3:</strong> Click "Open Upload Link" to access your secure Dropbox folder</li>
-                      <li>• <strong>Step 4:</strong> Upload the following required documents to your folder:</li>
-                      <li className="ml-4">- <strong>GST Certificate</strong> (Goods and Services Tax registration)</li>
-                      <li className="ml-4">- <strong>Aadhar Card</strong> (Government-issued identity document)</li>
-                      <li className="ml-4">- <strong>Passport</strong></li>
-                      <li>• <strong>Step 5:</strong> Ensure all documents are clear, readable, and in PDF or image format</li>
-                      <li>• <strong>Step 6:</strong> Once uploaded, return here and click "I've uploaded my KYC docs"</li>
-                    </ul>
-                    <p className="text-xs text-blue-700 mt-2 italic">Note: Your upload folder is secure and only accessible to you and our team.</p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button
-                      type="button"
-                      onClick={createKycRequest}
-                      disabled={isCreatingKyc || !areRequiredFieldsFilled()}
-                      className="btn-primary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isCreatingKyc ? 'Creating link...' : (kycLink ? 'Recreate Link' : 'Get KYC Upload Link')}
-                    </button>
-                    {kycLink && (
-                      <a
-                        href={kycLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 bg-white border border-blue-300 rounded-md text-blue-700 hover:bg-blue-50"
-                        onClick={() => console.log({ step: 'kyc_link_opened', url: kycLink })}
-                      >
-                        Open Upload Link
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => { setKycUploaded(true); setCurrentStep(3); console.log({ step: 'kyc_uploaded_confirmed' }) }}
-                      disabled={!kycLink && !dropboxAuthSuccess}
-                      className={`px-4 py-2 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed ${
-                        dropboxAuthSuccess && !kycLink 
-                          ? 'bg-blue-600 hover:bg-blue-700' 
-                          : 'bg-green-600 hover:bg-green-700'
-                      }`}
-                    >
-                      {dropboxAuthSuccess && !kycLink ? 'I\'ve uploaded my KYC docs (via Dropbox)' : 'I\'ve uploaded my KYC docs'}
-                    </button>
-                  </div>
-                  {!kycLink && (
-                    <p className="text-sm text-blue-800 mt-3">
-                      {areRequiredFieldsFilled() 
-                        ? 'You will get a unique Dropbox link to upload Business License, GST, and Aadhar.' 
-                        : 'Please fill out all required fields above to enable KYC upload link generation.'
-                      }
-                    </p>
-                  )}
-                  {kycUploaded && (
-                    <p className="text-sm text-green-700 mt-3">KYC upload confirmed.</p>
-                  )}
-                </div>
-              </div>
+               {/* KYC Documents Section */}
+               <div className="space-y-6">
+                 <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+                   <FileText className="w-6 h-6 text-blue-600" />
+                   KYC Documents Required
+                 </h2>
+                 
+                 <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 space-y-4">
+                   <div className="flex items-start gap-3">
+                     <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                       <span className="text-blue-600 text-sm font-semibold">!</span>
+                     </div>
+                     <div className="space-y-3">
+                       <h3 className="text-lg font-semibold text-blue-900">
+                         Important: KYC Documents Required
+                       </h3>
+                       <p className="text-blue-800">
+                         You will need to provide the following KYC (Know Your Customer) documents to complete your onboarding:
+                       </p>
+                       <ul className="list-disc list-inside text-blue-800 space-y-1 ml-4">
+                         <li>Business License</li>
+                         <li>GST Registration/Certificates</li>
+                         <li>Aadhar Card of Owner/Director</li>
+                       </ul>
+                       <div className="bg-blue-100 border border-blue-300 rounded-md p-3">
+                         <p className="text-blue-900 font-medium">
+                           Send all KYC documents to: <strong>info@3plvision.com</strong>
+                         </p>
+                         <p className="text-blue-800 text-sm mt-1">
+                           Please include your seller store name and STE code in the subject line.
+                         </p>
+                       </div>
+                     </div>
+                   </div>
+                   
+                   {/* KYC Upload Confirmation Button */}
+                   <div className="border-t border-blue-200 pt-4">
+                     <div className="flex items-center gap-3">
+                       <label className="flex items-center gap-2">
+                         <input
+                           type="checkbox"
+                           checked={kycUploaded}
+                           onChange={(e) => setKycUploaded(e.target.checked)}
+                           className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                         />
+                         <span className="text-blue-900 font-medium">
+                           I have uploaded my KYC documents to info@3plvision.com
+                         </span>
+                       </label>
+                     </div>
+                     {!kycUploaded && (
+                       <p className="text-sm text-amber-600 mt-2">
+                         Please confirm that you have uploaded your KYC documents to proceed.
+                       </p>
+                     )}
+                   </div>
+                 </div>
+               </div>
 
               {/* Agreement Acceptance Step with PDF and E-Signature */}
               <div className="space-y-6">

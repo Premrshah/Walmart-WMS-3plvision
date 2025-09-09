@@ -1,20 +1,76 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { CheckCircle, FileText, Copy, Download, ArrowLeft } from 'lucide-react'
 
-interface ConfirmationPageProps {
-  sellerName: string
-  steCode: string
-  signatureData: string | null
-  formData: any
-}
-
-export default function ConfirmationPage({ sellerName, steCode, signatureData, formData }: ConfirmationPageProps) {
+export default function ConfirmationPage() {
   const router = useRouter()
   const [copySuccess, setCopySuccess] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [sellerName, setSellerName] = useState<string>('')
+  const [steCode, setSteCode] = useState<string>('')
+  const [signatureData, setSignatureData] = useState<string | null>(null)
+  const [formData, setFormData] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Load data from session storage on component mount
+  useEffect(() => {
+    try {
+      const storedSellerName = sessionStorage.getItem('submittedSellerName')
+      const storedSteCode = sessionStorage.getItem('steCode')
+      const storedSignatureData = sessionStorage.getItem('signatureData')
+      const storedFormData = sessionStorage.getItem('submittedFormData')
+
+      console.log('Session data check:', {
+        sellerName: storedSellerName,
+        steCode: storedSteCode,
+        hasSignatureData: !!storedSignatureData,
+        hasFormData: !!storedFormData
+      })
+
+      if (storedSellerName && storedSteCode && storedFormData) {
+        setSellerName(storedSellerName)
+        setSteCode(storedSteCode)
+        setSignatureData(storedSignatureData ? JSON.parse(storedSignatureData) : null)
+        setFormData(JSON.parse(storedFormData))
+        setIsLoading(false)
+      } else {
+        console.log('Missing session data, redirecting to home')
+        // If no session data, redirect back to home after a short delay
+        setTimeout(() => {
+          router.push('/')
+        }, 1000)
+        return
+      }
+    } catch (error) {
+      console.error('Error loading session data:', error)
+      router.push('/')
+      return
+    }
+  }, [router])
+
+  // Cleanup session storage when user navigates away
+  const handleBackToHome = () => {
+    // Clear session storage before navigating
+    sessionStorage.removeItem('submittedSellerName')
+    sessionStorage.removeItem('steCode')
+    sessionStorage.removeItem('signatureData')
+    sessionStorage.removeItem('submittedFormData')
+    router.push('/')
+  }
+
+  // Show loading state while checking session data
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading confirmation...</p>
+        </div>
+      </div>
+    )
+  }
 
   // Copy Walmart return address to clipboard
   const copyWalmartAddress = async () => {
@@ -234,7 +290,7 @@ export default function ConfirmationPage({ sellerName, steCode, signatureData, f
         {/* Action Buttons */}
         <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
           <button
-            onClick={() => router.push('/')}
+            onClick={handleBackToHome}
             className="flex items-center gap-2 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors duration-200"
           >
             <ArrowLeft className="w-5 h-5" />
