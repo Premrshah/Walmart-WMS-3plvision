@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Seller } from '@/lib/supabase'
-import { CheckCircle, AlertCircle, Upload, Building2, User, Mail, Phone, MapPin, Store, FileText, Database, Copy } from 'lucide-react'
+import { CheckCircle, AlertCircle, Upload, Building2, User, Mail, Phone, MapPin, Store, FileText, Database, Copy, Download } from 'lucide-react'
+import SignaturePadComponent from './SignaturePad'
 
 export default function SellerForm() {
   const [formData, setFormData] = useState<Seller>({
@@ -28,8 +29,53 @@ export default function SellerForm() {
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
   const [steCode, setSteCode] = useState<string>('')
-  const [showSuccessModal, setShowSuccessModal] = useState(false)
-  const [copySuccess, setCopySuccess] = useState(false)
+  const appEnv = process.env.NEXT_PUBLIC_APP_ENV || 'production'
+
+  // Stepper states
+  const [currentStep, setCurrentStep] = useState<number>(1)
+  const [kycLink, setKycLink] = useState<string>('')
+  const [kycUploaded, setKycUploaded] = useState<boolean>(false)
+  const [dropboxAuthSuccess, setDropboxAuthSuccess] = useState<boolean>(false)
+  const [agreementAccepted, setAgreementAccepted] = useState<boolean>(false)
+  const [agreementButtonClicked, setAgreementButtonClicked] = useState<boolean>(false)
+  const [isCreatingKyc, setIsCreatingKyc] = useState<boolean>(false)
+  const [pendingKycRequest, setPendingKycRequest] = useState<{userId: string, formData: any} | null>(null)
+
+  // Check for Dropbox authentication success
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search)
+      
+      if (urlParams.get('dropbox_auth') === 'success') {
+        setDropboxAuthSuccess(true)
+        
+        // Check if there's an upload URL from the callback
+        const uploadUrl = urlParams.get('upload_url')
+        if (uploadUrl) {
+          setKycLink(decodeURIComponent(uploadUrl))
+        }
+        
+        // Clear the URL parameter
+        window.history.replaceState({}, document.title, window.location.pathname)
+        
+        // If there's a pending KYC request, retry it
+        if (pendingKycRequest) {
+          setTimeout(() => {
+            createKycRequestWithData(pendingKycRequest.userId, pendingKycRequest.formData)
+            setPendingKycRequest(null)
+          }, 1000)
+        }
+      }
+    }
+  }, [pendingKycRequest])
+  
+  // PDF and signature states
+  const [signatureData, setSignatureData] = useState<string | null>(null)
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false)
+  const [pdfGenerated, setPdfGenerated] = useState<boolean>(false)
+  const [formSubmitted, setFormSubmitted] = useState<boolean>(false)
+  const [submittedSellerName, setSubmittedSellerName] = useState<string>('')
+  const [isRedirecting, setIsRedirecting] = useState<boolean>(false)
 
   // Fetch current row count to calculate STE code
   useEffect(() => {
@@ -81,32 +127,289 @@ export default function SellerForm() {
     }))
   }
 
-  // Copy Walmart return address to clipboard
-  const copyWalmartAddress = async () => {
-    const walmartAddress = formData.seller_name ? 
-      `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619` :
-      `Seller Name - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
+
+  // Redirect to confirmation page
+  const redirectToConfirmation = (sellerName: string, formData: any) => {
+    // Store data in session storage for the confirmation page
+    sessionStorage.setItem('submittedSellerName', sellerName)
+    sessionStorage.setItem('steCode', steCode)
+    sessionStorage.setItem('signatureData', JSON.stringify(signatureData))
+    sessionStorage.setItem('submittedFormData', JSON.stringify(formData))
     
+    // Redirect to confirmation page
+    window.location.href = `/confirmation?sellerName=${encodeURIComponent(sellerName)}&steCode=${steCode}`
+  }
+
+  // Check if all required fields are filled
+  const areRequiredFieldsFilled = () => {
+    const requiredFields = ['seller_name', 'contact_name', 'email', 'primary_phone', 'business_name', 'address', 'city', 'state', 'zipcode', 'country', 'store_type']
+    return requiredFields.every(field => {
+      const value = formData[field as keyof Seller]
+      return value && value.toString().trim() !== ''
+    })
+  }
+
+  const createKycRequest = async () => {
     try {
-      await navigator.clipboard.writeText(walmartAddress)
-      setCopySuccess(true)
-      setTimeout(() => setCopySuccess(false), 2000)
-    } catch (err) {
-      console.error('Failed to copy: ', err)
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea')
-      textArea.value = walmartAddress
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textArea)
-      setCopySuccess(true)
-      setTimeout(() => setCopySuccess(false), 2000)
+      setIsCreatingKyc(true)
+      
+      // Generate a unique user ID for this session (in production, use actual user ID)
+      const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      
+      const requestData = {
+        seller_name: formData.seller_name,
+        email: formData.email,
+        ste_code: steCode,
+        userId
+      }
+      
+      const r = await fetch('/api/kyc/file-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      })
+      const json = await r.json()
+      
+      if (!r.ok) {
+        if (json.requiresAuth) {
+          // User needs to authenticate with Dropbox - store the request for later
+          setPendingKycRequest({ userId, formData: requestData })
+          await initiateDropboxAuth(userId)
+          return
+        }
+        console.error('Dropbox error:', json?.error)
+        return
+      }
+      
+      setKycLink(json.url)
+      console.log({ step: 'kyc_file_request_created', url: json.url, destination: json.destination })
+    } catch (e) {
+      console.error('Failed to create KYC request', e)
+    } finally {
+      setIsCreatingKyc(false)
+    }
+  }
+
+  const createKycRequestWithData = async (userId: string, requestData: any) => {
+    try {
+      setIsCreatingKyc(true)
+      
+      const r = await fetch('/api/kyc/file-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      })
+      const json = await r.json()
+      
+      if (!r.ok) {
+        console.error('Dropbox error after auth:', json?.error)
+        return
+      }
+      
+      setKycLink(json.url)
+    } catch (e) {
+      console.error('Failed to create KYC request after auth', e)
+    } finally {
+      setIsCreatingKyc(false)
+    }
+  }
+
+  const initiateDropboxAuth = async (userId: string) => {
+    try {
+      const response = await fetch('/api/dropbox/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId,
+          seller_name: formData.seller_name,
+          email: formData.email,
+          ste_code: steCode
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to initiate Dropbox authentication')
+      }
+      
+      const { authUrl } = await response.json()
+      
+      // Open Dropbox authorization in a new window
+      const authWindow = window.open(authUrl, 'dropbox-auth', 'width=600,height=700,scrollbars=yes,resizable=yes')
+      
+      // Listen for the window to close or receive a message
+      const checkClosed = setInterval(() => {
+        if (authWindow?.closed) {
+          clearInterval(checkClosed)
+          // Check if authentication was successful by trying the file request again
+          setTimeout(() => {
+            createKycRequest()
+          }, 1000)
+        }
+      }, 1000)
+      
+    } catch (error) {
+      console.error('Failed to initiate Dropbox authentication:', error)
+    }
+  }
+
+  const generatePdf = async () => {
+    try {
+      setIsGeneratingPdf(true)
+      const body = {
+        seller_name: formData.seller_name,
+        business_name: formData.business_name,
+        email: formData.email,
+        ste_code: steCode,
+        signature_data: signatureData,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zipcode: formData.zipcode,
+        country: formData.country
+      }
+      const r = await fetch('/api/agreement/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      
+      if (!r.ok) {
+        console.error('PDF generation failed')
+        return
+      }
+      
+      const blob = await r.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `3PL-Agreement-${formData.seller_name || 'Seller'}-STE-${steCode}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      console.log({ step: 'pdf_generated' })
+    } catch (e) {
+      console.error('Failed to generate PDF', e)
+    } finally {
+      setIsGeneratingPdf(false)
+    }
+  }
+
+
+  const previewUnsignedPdf = async () => {
+    try {
+      setIsGeneratingPdf(true)
+      const body = {
+        seller_name: formData.seller_name,
+        business_name: formData.business_name,
+        email: formData.email,
+        ste_code: steCode,
+        signature_data: null, // No signature for preview
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zipcode: formData.zipcode,
+        country: formData.country
+      }
+      
+      // Generate PDF without signature
+      const pdfResponse = await fetch('/api/agreement/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      
+      if (!pdfResponse.ok) {
+        console.error('PDF generation failed')
+        return
+      }
+      
+      // For unsigned PDF, we get a direct PDF response, not JSON
+      const pdfBlob = await pdfResponse.blob()
+      const url = window.URL.createObjectURL(pdfBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `3PL-Agreement-Preview-${formData.seller_name || 'Seller'}-STE-${steCode}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      console.log({ step: 'unsigned_pdf_previewed' })
+    } catch (e) {
+      console.error('Failed to generate unsigned PDF preview', e)
+    } finally {
+      setIsGeneratingPdf(false)
+    }
+  }
+
+  const sendAgreementEmail = async () => {
+    try {
+      setIsGeneratingPdf(true)
+      const body = {
+        seller_name: formData.seller_name,
+        business_name: formData.business_name,
+        email: formData.email,
+        ste_code: steCode,
+        signature_data: signatureData,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zipcode: formData.zipcode,
+        country: formData.country
+      }
+      
+      // Generate PDF with signature
+      const pdfResponse = await fetch('/api/agreement/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      
+      if (!pdfResponse.ok) {
+        console.error('PDF generation failed')
+        return
+      }
+      
+      const pdfData = await pdfResponse.json()
+      
+      // Send email with PDF
+      const emailResponse = await fetch('/api/email/send-agreement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seller_email: formData.email,
+          seller_name: formData.seller_name,
+          ste_code: steCode,
+          pdf_base64: pdfData.pdf_base64,
+          walmart_address: formData.seller_name ? 
+            `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619` : 
+            `Seller Name - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
+        })
+      })
+      
+      if (!emailResponse.ok) {
+        console.error('Email sending failed')
+        return
+      }
+      
+      console.log({ step: 'agreement_emailed' })
+    } catch (e) {
+      console.error('Failed to send agreement email', e)
+    } finally {
+      setIsGeneratingPdf(false)
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Set loading state immediately
+    setIsSubmitting(true)
+    setIsRedirecting(true)
+    setSubmitStatus('idle')
+    setErrorMessage('')
     
     // Security: Sanitize all form data before submission
     const sanitizedFormData = Object.fromEntries(
@@ -121,6 +424,8 @@ export default function SellerForm() {
     const missingFields = requiredFields.filter(field => !sanitizedFormData[field as keyof Seller] || sanitizedFormData[field as keyof Seller]?.toString().trim() === '')
     
     if (missingFields.length > 0) {
+      setIsSubmitting(false)
+      setIsRedirecting(false)
       setSubmitStatus('error')
       setErrorMessage(`Please fill in all required fields: ${missingFields.join(', ')}`)
       return
@@ -128,12 +433,16 @@ export default function SellerForm() {
 
     // Security: Additional validation
     if (sanitizedFormData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sanitizedFormData.email)) {
+      setIsSubmitting(false)
+      setIsRedirecting(false)
       setSubmitStatus('error')
       setErrorMessage('Please enter a valid email address')
       return
     }
 
     if (sanitizedFormData.seller_logo && !sanitizedFormData.seller_logo.startsWith('http')) {
+      setIsSubmitting(false)
+      setIsRedirecting(false)
       setSubmitStatus('error')
       setErrorMessage('Logo URL must start with http:// or https://')
       return
@@ -146,7 +455,12 @@ export default function SellerForm() {
         walmart_address: `${sanitizedFormData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
       }
       console.log('Form submitted (Demo Mode - Supabase not configured):', demoData)
-      setShowSuccessModal(true)
+      setSubmittedSellerName(sanitizedFormData.seller_name)
+      setFormSubmitted(true)
+      // Send agreement email
+      await sendAgreementEmail()
+      // Redirect to confirmation page
+      redirectToConfirmation(sanitizedFormData.seller_name, sanitizedFormData)
       setFormData({
         seller_name: '',
         ste_code: '',
@@ -167,12 +481,20 @@ export default function SellerForm() {
       // Update STE code for next submission
       const currentSteCode = parseInt(steCode) || 9001
       setSteCode((currentSteCode + 1).toString())
+      // Reset stepper for next run
+      setCurrentStep(1)
+      setKycLink('')
+      setKycUploaded(false)
+      setAgreementAccepted(false)
+      setAgreementButtonClicked(false)
+      setSignatureData(null)
+      setPdfGenerated(false)
+      setFormSubmitted(false)
+      setSubmittedSellerName('')
+      setIsSubmitting(false)
+      setIsRedirecting(false)
       return
     }
-
-    setIsSubmitting(true)
-    setSubmitStatus('idle')
-    setErrorMessage('')
 
     try {
       // Security: Create submission data with auto-generated Walmart address
@@ -188,7 +510,12 @@ export default function SellerForm() {
 
       if (error) throw error
 
-      setShowSuccessModal(true)
+      setFormSubmitted(true)
+      // Send agreement email
+      await sendAgreementEmail()
+      setSubmittedSellerName(sanitizedFormData.seller_name)
+      // Redirect to confirmation page
+      redirectToConfirmation(sanitizedFormData.seller_name, sanitizedFormData)
       setFormData({
         seller_name: '',
         ste_code: '',
@@ -210,11 +537,21 @@ export default function SellerForm() {
       // Update STE code for next submission
       const currentSteCode = parseInt(steCode) || 9001
       setSteCode((currentSteCode + 1).toString())
+      setCurrentStep(1)
+      setKycLink('')
+      setKycUploaded(false)
+      setAgreementAccepted(false)
+      setAgreementButtonClicked(false)
+      setSignatureData(null)
+      setPdfGenerated(false)
+      setFormSubmitted(false)
+      setSubmittedSellerName('')
     } catch (error: any) {
       setSubmitStatus('error')
       setErrorMessage(error.message || 'An error occurred while submitting the form')
     } finally {
       setIsSubmitting(false)
+      setIsRedirecting(false)
     }
   }
 
@@ -233,6 +570,11 @@ export default function SellerForm() {
             </div>
             <h1 className="text-4xl font-bold text-gray-900 mb-4">
               3PLVision Seller Onboarding
+              {appEnv !== 'production' && (
+                <span className="ml-2 align-middle text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                  DEV
+                </span>
+              )}
             </h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
               Complete your seller profile to start setting up returns management on Walmart Marketplace
@@ -245,6 +587,15 @@ export default function SellerForm() {
               <Database className="w-5 h-5 text-blue-600" />
               <span className="text-blue-800 font-medium">
                 Demo Mode: Supabase is not configured. Form data will be logged to console. Set up environment variables to enable database storage.
+              </span>
+            </div>
+          )}
+
+          {appEnv !== 'production' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-4 mb-6 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+              <span className="text-amber-800 font-medium">
+                Dev Mode: You are connected to the development environment.
               </span>
             </div>
           )}
@@ -527,43 +878,6 @@ export default function SellerForm() {
                 </div>
               </div>
 
-              {/* Walmart Address Section */}
-              <div className="space-y-6">
-                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-                  <FileText className="w-6 h-6 text-blue-600" />
-                  Walmart Return Address
-                </h2>
-                
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="walmart_address" className="form-label mb-0">
-                      Walmart Return Address
-                    </label>
-                    <button
-                      type="button"
-                      onClick={copyWalmartAddress}
-                      className="flex items-center gap-2 px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md transition-colors duration-200"
-                    >
-                      <Copy className="w-4 h-4" />
-                      {copySuccess ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
-                  <textarea
-                    id="walmart_address"
-                    name="walmart_address"
-                    value={formData.seller_name ? 
-                      `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619` : 
-                      `Seller Name - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
-                    }
-                    disabled
-                    rows={4}
-                    className="form-input bg-gray-100 cursor-not-allowed"
-                    title="Walmart return address is automatically generated based on your STE code and seller store name"
-                  />
-                  <p className="text-sm text-gray-500 mt-1">Please use this address for all your returns at walmart.com</p>
-                </div>
-              </div>
-
               {/* KYC Documents Section */}
               <div className="space-y-6">
                 <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
@@ -588,30 +902,199 @@ export default function SellerForm() {
                         <li>GST Registration/Certificates</li>
                         <li>Aadhar Card of Owner/Director</li>
                       </ul>
-                      <div className="bg-white border border-blue-300 rounded-md p-4 mt-4">
-                        <p className="text-blue-900 font-medium mb-2">
-                          Send all KYC documents to:
-                        </p>
-                        <p className="text-blue-800 text-lg font-semibold">
-                          info@3plvision.com
-                        </p>
-                        <p className="text-blue-700 text-sm mt-1">
-                          Please include your seller store name and STE code in the subject line
-                        </p>
-                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
+              {/* KYC Upload Step (Dropbox) */}
+              <div className="space-y-6">
+                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+                  <Upload className="w-6 h-6 text-blue-600" />
+                  KYC Upload
+                </h2>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                  {dropboxAuthSuccess && !kycLink && (
+                    <div className="mb-4 p-3 bg-green-100 border border-green-300 rounded-md">
+                      <p className="text-green-800 text-sm font-medium">
+                        ✅ Successfully connected to Dropbox! You can now upload your documents directly to your Dropbox folder or click "I've uploaded my KYC docs" to proceed.
+                      </p>
+                    </div>
+                  )}
+                  {kycLink && (
+                    <div className="mb-4 p-3 bg-green-100 border border-green-300 rounded-md">
+                      <p className="text-green-800 text-sm font-medium">
+                        🎉 Upload link created successfully! Click "Open Upload Link" to upload your documents.
+                      </p>
+                    </div>
+                  )}
+                  <div className="text-blue-900 mb-4">
+                    <p className="font-semibold mb-2">📋 KYC Document Upload Instructions:</p>
+                    <ul className="text-sm space-y-1 ml-4">
+                      <li>• <strong>Step 1:</strong> Click "Get KYC Upload Link" to authorize with Dropbox and generate your secure upload folder</li>
+                      <li>• <strong>Step 2:</strong> Complete the Dropbox authorization in the popup window</li>
+                      <li>• <strong>Step 3:</strong> Click "Open Upload Link" to access your secure Dropbox folder</li>
+                      <li>• <strong>Step 4:</strong> Upload the following required documents to your folder:</li>
+                      <li className="ml-4">- <strong>GST Certificate</strong> (Goods and Services Tax registration)</li>
+                      <li className="ml-4">- <strong>Aadhar Card</strong> (Government-issued identity document)</li>
+                      <li className="ml-4">- <strong>Passport</strong></li>
+                      <li>• <strong>Step 5:</strong> Ensure all documents are clear, readable, and in PDF or image format</li>
+                      <li>• <strong>Step 6:</strong> Once uploaded, return here and click "I've uploaded my KYC docs"</li>
+                    </ul>
+                    <p className="text-xs text-blue-700 mt-2 italic">Note: Your upload folder is secure and only accessible to you and our team.</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={createKycRequest}
+                      disabled={isCreatingKyc || !areRequiredFieldsFilled()}
+                      className="btn-primary px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isCreatingKyc ? 'Creating link...' : (kycLink ? 'Recreate Link' : 'Get KYC Upload Link')}
+                    </button>
+                    {kycLink && (
+                      <a
+                        href={kycLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 bg-white border border-blue-300 rounded-md text-blue-700 hover:bg-blue-50"
+                        onClick={() => console.log({ step: 'kyc_link_opened', url: kycLink })}
+                      >
+                        Open Upload Link
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => { setKycUploaded(true); setCurrentStep(3); console.log({ step: 'kyc_uploaded_confirmed' }) }}
+                      disabled={!kycLink && !dropboxAuthSuccess}
+                      className={`px-4 py-2 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed ${
+                        dropboxAuthSuccess && !kycLink 
+                          ? 'bg-blue-600 hover:bg-blue-700' 
+                          : 'bg-green-600 hover:bg-green-700'
+                      }`}
+                    >
+                      {dropboxAuthSuccess && !kycLink ? 'I\'ve uploaded my KYC docs (via Dropbox)' : 'I\'ve uploaded my KYC docs'}
+                    </button>
+                  </div>
+                  {!kycLink && (
+                    <p className="text-sm text-blue-800 mt-3">
+                      {areRequiredFieldsFilled() 
+                        ? 'You will get a unique Dropbox link to upload Business License, GST, and Aadhar.' 
+                        : 'Please fill out all required fields above to enable KYC upload link generation.'
+                      }
+                    </p>
+                  )}
+                  {kycUploaded && (
+                    <p className="text-sm text-green-700 mt-3">KYC upload confirmed.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Agreement Acceptance Step with PDF and E-Signature */}
+              <div className="space-y-6">
+                <h2 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                  3PL Warehousing Agreement
+                </h2>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 space-y-4">
+                  <p className="text-gray-800">This agreement is between <strong>3PLVisions LLC</strong> and <strong>{formData.business_name || 'Your Business'}</strong> (Walmart seller: {formData.seller_name || 'Seller'}) with STE-{steCode || 'XXXX'}.</p>
+                  <ul className="list-disc list-inside text-gray-700 space-y-1">
+                    <li>Billing starts from the first day your first package arrives at our warehouse.</li>
+                    <li>You will be informed when charges are initiated and must pay for warehousing services.</li>
+                    <li>If payment is not received within 30 days of product arrival, the products will be disposed.</li>
+                  </ul>
+                  
+                  {/* PDF Generation Info */}
+                  <div className="border-t pt-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                        <h4 className="font-medium text-blue-900">Agreement PDF</h4>
+                      </div>
+                      <p className="text-sm text-blue-800 mb-3">
+                        A signed PDF agreement will be generated and downloaded when you accept the agreement below. The agreement will be emailed to you and minals@hotmail.com when you submit the form.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={previewUnsignedPdf}
+                        disabled={isGeneratingPdf}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {isGeneratingPdf ? 'Generating Preview...' : 'Preview Agreement (Unsigned)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Digital Signature */}
+                  <div className="border-t pt-4">
+                    <h3 className="text-lg font-medium text-gray-900 mb-3">Digital Signature</h3>
+                    <SignaturePadComponent
+                      onSignatureChange={setSignatureData}
+                      width={400}
+                      height={200}
+                    />
+                  </div>
+
+                  {/* Agreement Acceptance */}
+                  <div className="border-t pt-4">
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={agreementAccepted}
+                          onChange={(e) => {
+                            setAgreementAccepted(e.target.checked)
+                            if (!e.target.checked) {
+                              setAgreementButtonClicked(false)
+                            }
+                          }}
+                        />
+                        <span className="text-gray-800">I agree to the terms above and have signed digitally</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => { 
+                          if (kycUploaded && agreementAccepted && signatureData) { 
+                            // Just accept the agreement (PDF will be available on confirmation page)
+                            setAgreementButtonClicked(true)
+                            console.log({ step: 'agreement_accepted', signature: signatureData }); 
+                            // Address will be shown only after form submission
+                          }
+                        }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50"
+                        disabled={!kycUploaded || !agreementAccepted || !signatureData}
+                      >
+                        Accept Agreement
+                      </button>
+                    </div>
+                    {!signatureData && (
+                      <p className="text-sm text-amber-600 mt-2">Please provide your digital signature above.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+
               {/* Submit Button */}
               <div className="flex justify-center pt-6">
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isRedirecting || !(kycUploaded && agreementAccepted && agreementButtonClicked && signatureData)}
                   className="btn-primary text-lg px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? 'Submitting...' : supabase ? 'Submit Application' : 'Submit (Demo Mode)'}
+                  {isSubmitting || isRedirecting ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      {isRedirecting ? 'Redirecting to confirmation...' : 'Submitting...'}
+                    </div>
+                  ) : (
+                    kycUploaded && agreementAccepted && agreementButtonClicked && signatureData ? 
+                      (supabase ? 'Submit Application' : 'Submit (Demo Mode)') : 
+                      'Complete steps to submit'
+                  )}
                 </button>
               </div>
 
@@ -629,56 +1112,6 @@ export default function SellerForm() {
         </div>
       </div>
 
-      {/* Success Modal */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-2xl mx-4 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-4">
-              Application submitted successfully!
-            </h3>
-            
-            <div className="text-left space-y-4 mb-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 mb-2">
-                  🎉 Next Steps:
-                </h4>
-                <ol className="list-decimal list-inside text-blue-800 space-y-2 ml-4">
-                  <li>Your application has been received and assigned STE Code: <span className="font-mono font-semibold">STE-{parseInt(steCode)-1}</span></li>
-                  <li>Our team will review your application within 24-48 hours</li>
-                  <li>You will receive a confirmation email with further instructions</li>
-                </ol>
-              </div>
-              
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <h4 className="font-semibold text-amber-900 mb-2">
-                  Important: KYC Documents Required
-                </h4>
-                <p className="text-amber-800 mb-3">
-                  To complete your onboarding, please email the following documents to:
-                </p>
-                <div className="bg-white border border-amber-300 rounded-md p-3 mb-3">
-                  <p className="text-amber-900 font-semibold text-lg">
-                    info@3plvision.com
-                  </p>
-                </div>
-                <p className="text-amber-800 text-sm">
-                  <strong>Subject line:</strong> KYC Documents - {formData.seller_name || 'Seller'} - STE-{parseInt(steCode)-1}
-                </p>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => setShowSuccessModal(false)}
-              className="btn-primary w-full"
-            >
-              Got it! I'll send my KYC documents
-            </button>
-          </div>
-        </div>
-      )}
     </>
   )
 }
