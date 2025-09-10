@@ -33,9 +33,45 @@ export default function SellerForm() {
 
   // Stepper states
   const [currentStep, setCurrentStep] = useState<number>(1)
-  const [kycUploaded, setKycUploaded] = useState<boolean>(false) // Default unchecked - user must confirm upload
+  const [kycDocuments, setKycDocuments] = useState<{
+    businessLicense: File | null
+    gstRegistration: File | null
+    aadharCard: File | null
+  }>({
+    businessLicense: null,
+    gstRegistration: null,
+    aadharCard: null
+  })
   const [agreementAccepted, setAgreementAccepted] = useState<boolean>(false)
   const [agreementButtonClicked, setAgreementButtonClicked] = useState<boolean>(false)
+
+  // Validation function for required fields
+  const validateRequiredFields = () => {
+    const requiredFields = [
+      'seller_name',
+      'business_name', 
+      'contact_name',
+      'email',
+      'primary_phone',
+      'address',
+      'city',
+      'state',
+      'zipcode',
+      'country',
+      'store_type'
+    ]
+    
+    return requiredFields.every(field => {
+      const value = formData[field as keyof Seller]
+      return value && value.toString().trim() !== ''
+    })
+  }
+
+  // Check if email is valid
+  const isValidEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(email)
+  }
 
 
   
@@ -95,6 +131,44 @@ export default function SellerForm() {
       ...prev,
       [name]: value
     }))
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, documentType: keyof typeof kycDocuments) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf']
+      if (!allowedTypes.includes(file.type)) {
+        alert('Please upload only JPG, PNG, or PDF files.')
+        return
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File size must be less than 5MB.')
+        return
+      }
+
+      setKycDocuments(prev => ({
+        ...prev,
+        [documentType]: file
+      }))
+    }
+  }
+
+  // Convert file to base64 for email attachment
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => {
+        const result = reader.result as string
+        // Remove the data:type;base64, prefix
+        const base64 = result.split(',')[1]
+        resolve(base64)
+      }
+      reader.onerror = error => reject(error)
+    })
   }
 
 
@@ -240,7 +314,26 @@ export default function SellerForm() {
       
       const pdfData = await pdfResponse.json()
       
-      // Send email with PDF
+      // Convert KYC documents to base64
+      const kycDocumentsBase64 = {
+        businessLicense: kycDocuments.businessLicense ? {
+          name: kycDocuments.businessLicense.name,
+          type: kycDocuments.businessLicense.type,
+          data: await fileToBase64(kycDocuments.businessLicense)
+        } : null,
+        gstRegistration: kycDocuments.gstRegistration ? {
+          name: kycDocuments.gstRegistration.name,
+          type: kycDocuments.gstRegistration.type,
+          data: await fileToBase64(kycDocuments.gstRegistration)
+        } : null,
+        aadharCard: kycDocuments.aadharCard ? {
+          name: kycDocuments.aadharCard.name,
+          type: kycDocuments.aadharCard.type,
+          data: await fileToBase64(kycDocuments.aadharCard)
+        } : null
+      }
+      
+      // Send email with PDF and KYC documents
       const emailResponse = await fetch('/api/email/send-agreement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -251,7 +344,8 @@ export default function SellerForm() {
           pdf_base64: pdfData.pdf_base64,
           walmart_address: formData.seller_name ? 
             `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619` : 
-            `Seller Name - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`
+            `Seller Name - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`,
+          kyc_documents: kycDocumentsBase64
         })
       })
       
@@ -349,7 +443,6 @@ export default function SellerForm() {
       setSteCode((currentSteCode + 1).toString())
     // Reset stepper for next run
     setCurrentStep(1)
-    setKycUploaded(false)
     setAgreementAccepted(false)
       setAgreementButtonClicked(false)
       setSignatureData(null)
@@ -403,7 +496,6 @@ export default function SellerForm() {
       const currentSteCode = parseInt(steCode) || 9001
       setSteCode((currentSteCode + 1).toString())
       setCurrentStep(1)
-      setKycUploaded(false)
       setAgreementAccepted(false)
       setAgreementButtonClicked(false)
       setSignatureData(null)
@@ -749,7 +841,7 @@ export default function SellerForm() {
                    KYC Documents Required
                  </h2>
                  
-                 <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 space-y-4">
+                 <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 space-y-6">
                    <div className="flex items-start gap-3">
                      <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                        <span className="text-blue-600 text-sm font-semibold">!</span>
@@ -759,44 +851,102 @@ export default function SellerForm() {
                          Important: KYC Documents Required
                        </h3>
                        <p className="text-blue-800">
-                         You will need to provide the following KYC (Know Your Customer) documents to complete your onboarding:
+                         Please upload the following KYC (Know Your Customer) documents to complete your onboarding:
                        </p>
-                       <ul className="list-disc list-inside text-blue-800 space-y-1 ml-4">
-                         <li>Business License</li>
-                         <li>GST Registration/Certificates</li>
-                         <li>Aadhar Card of Owner/Director</li>
-                       </ul>
-                       <div className="bg-blue-100 border border-blue-300 rounded-md p-3">
-                         <p className="text-blue-900 font-medium">
-                           Send all KYC documents to: <strong>info@3plvision.com</strong>
-                         </p>
-                         <p className="text-blue-800 text-sm mt-1">
-                           Please include your seller store name and STE code in the subject line.
-                         </p>
-                       </div>
                      </div>
                    </div>
                    
-                   {/* KYC Upload Confirmation Button */}
+                   {/* File Upload Fields */}
+                   <div className="space-y-4">
+                     {/* Business License Upload */}
+                     <div className="bg-white border border-blue-200 rounded-lg p-4">
+                       <label className="block text-sm font-medium text-gray-700 mb-2">
+                         Business License <span className="text-red-500">*</span>
+                       </label>
+                       <input
+                         type="file"
+                         accept=".pdf,.jpg,.jpeg,.png"
+                         onChange={(e) => handleFileUpload(e, 'businessLicense')}
+                         className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                       />
+                       {kycDocuments.businessLicense && (
+                         <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                           <CheckCircle className="w-4 h-4" />
+                           {kycDocuments.businessLicense.name} uploaded
+                         </p>
+                       )}
+                     </div>
+
+                     {/* GST Registration Upload */}
+                     <div className="bg-white border border-blue-200 rounded-lg p-4">
+                       <label className="block text-sm font-medium text-gray-700 mb-2">
+                         GST Registration/Certificates <span className="text-red-500">*</span>
+                       </label>
+                       <input
+                         type="file"
+                         accept=".pdf,.jpg,.jpeg,.png"
+                         onChange={(e) => handleFileUpload(e, 'gstRegistration')}
+                         className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                       />
+                       {kycDocuments.gstRegistration && (
+                         <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                           <CheckCircle className="w-4 h-4" />
+                           {kycDocuments.gstRegistration.name} uploaded
+                         </p>
+                       )}
+                     </div>
+
+                     {/* Aadhar Card Upload */}
+                     <div className="bg-white border border-blue-200 rounded-lg p-4">
+                       <label className="block text-sm font-medium text-gray-700 mb-2">
+                         Aadhar Card of Owner/Director <span className="text-red-500">*</span>
+                       </label>
+                       <input
+                         type="file"
+                         accept=".pdf,.jpg,.jpeg,.png"
+                         onChange={(e) => handleFileUpload(e, 'aadharCard')}
+                         className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                       />
+                       {kycDocuments.aadharCard && (
+                         <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
+                           <CheckCircle className="w-4 h-4" />
+                           {kycDocuments.aadharCard.name} uploaded
+                         </p>
+                       )}
+                     </div>
+                   </div>
+
+                   {/* Upload Requirements */}
+                   <div className="bg-blue-100 border border-blue-300 rounded-md p-3">
+                     <p className="text-blue-900 text-sm font-medium mb-1">Upload Requirements:</p>
+                     <ul className="text-blue-800 text-sm space-y-1 ml-4">
+                       <li>• Accepted formats: PDF, JPG, PNG</li>
+                       <li>• Maximum file size: 5MB per document</li>
+                       <li>• All documents must be clear and readable</li>
+                     </ul>
+                   </div>
+
+                   {/* Upload Status */}
                    <div className="border-t border-blue-200 pt-4">
                      <div className="flex items-center gap-3">
-                       <label className="flex items-center gap-2">
-                         <input
-                           type="checkbox"
-                           checked={kycUploaded}
-                           onChange={(e) => setKycUploaded(e.target.checked)}
-                           className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                         />
-                         <span className="text-blue-900 font-medium">
-                           I have uploaded my KYC documents to info@3plvision.com
-                         </span>
-                       </label>
+                       <div className="flex items-center gap-2">
+                         {kycDocuments.businessLicense && kycDocuments.gstRegistration && kycDocuments.aadharCard ? (
+                           <div className="flex items-center gap-2 text-green-600">
+                             <CheckCircle className="w-5 h-5" />
+                             <span className="text-green-900 font-medium">
+                               All KYC documents uploaded successfully
+                             </span>
+                           </div>
+                         ) : (
+                           <div className="flex items-center gap-2 text-amber-600">
+                             <AlertCircle className="w-5 h-5" />
+                             <span className="text-amber-900 font-medium">
+                               Please upload all three required documents to proceed
+                             </span>
+                           </div>
+                         )}
+                       </div>
                      </div>
-                     {!kycUploaded && (
-                       <p className="text-sm text-amber-600 mt-2">
-                         Please confirm that you have uploaded your KYC documents to proceed.
-                       </p>
-                     )}
                    </div>
                  </div>
                </div>
@@ -856,33 +1006,33 @@ export default function SellerForm() {
                           type="checkbox"
                           checked={agreementAccepted}
                           onChange={(e) => {
-                            setAgreementAccepted(e.target.checked)
-                            if (!e.target.checked) {
+                            if (e.target.checked && validateRequiredFields() && isValidEmail(formData.email) && signatureData && kycDocuments.businessLicense && kycDocuments.gstRegistration && kycDocuments.aadharCard) {
+                              setAgreementAccepted(true)
+                              setAgreementButtonClicked(true)
+                              console.log({ step: 'agreement_accepted', signature: signatureData }); 
+                            } else if (!e.target.checked) {
+                              setAgreementAccepted(false)
                               setAgreementButtonClicked(false)
                             }
                           }}
+                          disabled={!validateRequiredFields() || !isValidEmail(formData.email) || !signatureData || !kycDocuments.businessLicense || !kycDocuments.gstRegistration || !kycDocuments.aadharCard}
+                          className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                         <span className="text-gray-800">I agree to the terms above and have signed digitally</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => { 
-                          if (kycUploaded && agreementAccepted && signatureData) { 
-                            // Just accept the agreement (PDF will be available on confirmation page)
-                            setAgreementButtonClicked(true)
-                            console.log({ step: 'agreement_accepted', signature: signatureData }); 
-                            // Address will be shown only after form submission
-                          }
-                        }}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50"
-                        disabled={!kycUploaded || !agreementAccepted || !signatureData}
-                      >
-                        Accept Agreement
-                      </button>
                     </div>
+                    {!validateRequiredFields() && (
+                      <p className="text-sm text-amber-600 mt-2">Please fill out all required fields above.</p>
+                    )}
+                    {!isValidEmail(formData.email) && formData.email && (
+                      <p className="text-sm text-amber-600 mt-2">Please enter a valid email address.</p>
+                    )}
                     {!signatureData && (
                       <p className="text-sm text-amber-600 mt-2">Please provide your digital signature above.</p>
                     )}
+                    {!kycDocuments.businessLicense || !kycDocuments.gstRegistration || !kycDocuments.aadharCard ? (
+                      <p className="text-sm text-amber-600 mt-2">Please upload all required KYC documents above.</p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -892,7 +1042,7 @@ export default function SellerForm() {
               <div className="flex justify-center pt-6">
                 <button
                   type="submit"
-                  disabled={isSubmitting || isRedirecting || !(kycUploaded && agreementAccepted && agreementButtonClicked && signatureData)}
+                  disabled={isSubmitting || isRedirecting || !(validateRequiredFields() && isValidEmail(formData.email) && agreementAccepted && agreementButtonClicked && signatureData && kycDocuments.businessLicense && kycDocuments.gstRegistration && kycDocuments.aadharCard)}
                   className="btn-primary text-lg px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting || isRedirecting ? (
@@ -901,9 +1051,9 @@ export default function SellerForm() {
                       {isRedirecting ? 'Redirecting to confirmation...' : 'Submitting...'}
                     </div>
                   ) : (
-                    kycUploaded && agreementAccepted && agreementButtonClicked && signatureData ? 
+                    validateRequiredFields() && isValidEmail(formData.email) && agreementAccepted && agreementButtonClicked && signatureData && kycDocuments.businessLicense && kycDocuments.gstRegistration && kycDocuments.aadharCard ? 
                       (supabase ? 'Submit Application' : 'Submit (Demo Mode)') : 
-                      'Complete steps to submit'
+                      'Complete all required fields to submit'
                   )}
                 </button>
               </div>

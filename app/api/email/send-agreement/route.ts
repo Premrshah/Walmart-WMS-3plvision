@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer'
 
 export async function POST(req: Request) {
   try {
-    const { seller_email, seller_name, ste_code, pdf_base64, walmart_address } = await req.json()
+    const { seller_email, seller_name, ste_code, pdf_base64, walmart_address, kyc_documents } = await req.json()
 
     // Create transporter (using Gmail SMTP as example - you can change this)
     const transporter = nodemailer.createTransport({
@@ -16,6 +16,32 @@ export async function POST(req: Request) {
 
     // Convert base64 PDF to buffer
     const pdfBuffer = Buffer.from(pdf_base64.split(',')[1], 'base64')
+
+    // Process KYC documents for attachments
+    const kycAttachments = []
+    if (kyc_documents) {
+      if (kyc_documents.businessLicense) {
+        kycAttachments.push({
+          filename: `Business-License-${seller_name}.${kyc_documents.businessLicense.name.split('.').pop()}`,
+          content: Buffer.from(kyc_documents.businessLicense.data, 'base64'),
+          contentType: kyc_documents.businessLicense.type,
+        })
+      }
+      if (kyc_documents.gstRegistration) {
+        kycAttachments.push({
+          filename: `GST-Registration-${seller_name}.${kyc_documents.gstRegistration.name.split('.').pop()}`,
+          content: Buffer.from(kyc_documents.gstRegistration.data, 'base64'),
+          contentType: kyc_documents.gstRegistration.type,
+        })
+      }
+      if (kyc_documents.aadharCard) {
+        kycAttachments.push({
+          filename: `Aadhar-Card-${seller_name}.${kyc_documents.aadharCard.name.split('.').pop()}`,
+          content: Buffer.from(kyc_documents.aadharCard.data, 'base64'),
+          contentType: kyc_documents.aadharCard.type,
+        })
+      }
+    }
 
     // Email content
     const subject = `3PL Warehousing Agreement - ${seller_name} - STE-${ste_code}`
@@ -55,6 +81,7 @@ export async function POST(req: Request) {
           content: pdfBuffer,
           contentType: 'application/pdf',
         },
+        ...kycAttachments,
       ],
     })
 
@@ -88,6 +115,7 @@ export async function POST(req: Request) {
           content: pdfBuffer,
           contentType: 'application/pdf',
         },
+        ...kycAttachments,
       ],
     })
 

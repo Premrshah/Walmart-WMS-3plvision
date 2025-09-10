@@ -13,17 +13,55 @@ export async function POST(req: Request) {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
     
+    // Function to wrap long text into multiple lines
+    const wrapText = (text: string, maxLength: number = 80): string[] => {
+      if (!text || text.length <= maxLength) {
+        return [text]
+      }
+      
+      const words = text.split(' ')
+      const lines: string[] = []
+      let currentLine = ''
+      
+      for (const word of words) {
+        if ((currentLine + word).length <= maxLength) {
+          currentLine += (currentLine ? ' ' : '') + word
+        } else {
+          if (currentLine) {
+            lines.push(currentLine)
+            currentLine = word
+          } else {
+            // If single word is longer than maxLength, force it onto a line
+            lines.push(word)
+          }
+        }
+      }
+      
+      if (currentLine) {
+        lines.push(currentLine)
+      }
+      
+      return lines
+    }
+    
+    // Wrap address and business name if they're too long
+    const addressLines = wrapText(address || '', 70)
+    const businessNameLines = wrapText(business_name || 'Your Business', 60)
+    
     // Agreement content
     const content = [
       '',
       `This 3PL Warehousing and Fulfillment Agreement ("Agreement") is entered into as of ${new Date().toLocaleDateString()}, by and between`,
       `3PLVision LLC, a New Jersey limited liability company, with its principal office at 299 Whithead Road,`,
-      `Hamilton, NJ 08619, USA ("3PLVision"), and ${business_name || 'Your Business'} ("Client").`,
+      `Hamilton, NJ 08619, USA ("3PLVision"), and ${businessNameLines[0]} ("Client").`,
       '',
       'CLIENT INFORMATION:',
       `Online Store: ${seller_name || ''}`,
-      `Address: ${signature_data ? `${address || ''}, ${city || ''}, ${state || ''}, ${zipcode || ''}, ${country || ''}` : ''}`,
-
+      ...addressLines.map((line, index) => index === 0 ? `Address: ${line}` : `         ${line}`),
+      `City: ${city || ''}`,
+      `State: ${state || ''}`,
+      `Zipcode: ${zipcode || ''}`,
+      `Country: ${country || ''}`,
       '',
       '1. SERVICES',
       '3PLVision agrees to provide warehousing, storage, order fulfillment, pick-and-pack, inventory',
@@ -120,9 +158,7 @@ export async function POST(req: Request) {
       'relating to this Agreement.',
       'The proper venue for all disputes shall be the courts of New York County, New York.',
       'Both parties waive any objection to jurisdiction, venue, or forum non convenience with',
-      'respect to such courts.',
-      '',
-      'IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective Date.'
+      'respect to such courts.'
     ]
     
     // Multi-page content rendering
@@ -204,6 +240,15 @@ export async function POST(req: Request) {
     }
     
     const addPageHeader = (page: any, pageNum: number) => {
+      // Set white background for the entire page
+      page.drawRectangle({
+        x: 0,
+        y: 0,
+        width: width,
+        height: height,
+        color: rgb(1, 1, 1), // White background
+      })
+      
       page.drawText('3PL WAREHOUSING AND FULFILLMENT AGREEMENT', {
         x: 50,
         y: height - 30,
@@ -258,6 +303,16 @@ export async function POST(req: Request) {
         pageNumber++
         addPageHeader(currentPage, pageNumber)
         yPosition = height - 80
+        
+        // Add "IN WITNESS WHEREOF" text
+        currentPage.drawText('IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective Date.', {
+          x: 50,
+          y: yPosition,
+          size: 11,
+          font: boldFont,
+          color: rgb(0, 0, 0),
+        })
+        yPosition -= 50
         
         // Convert base64 signature to image
         const signatureImage = await pdfDoc.embedPng(signature_data)
@@ -391,6 +446,16 @@ export async function POST(req: Request) {
       pageNumber++
       addPageHeader(currentPage, pageNumber)
       yPosition = height - 80
+      
+      // Add "IN WITNESS WHEREOF" text
+      currentPage.drawText('IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective Date.', {
+        x: 50,
+        y: yPosition,
+        size: 11,
+        font: boldFont,
+        color: rgb(0, 0, 0),
+      })
+      yPosition -= 50
       
       // Add client signature section (unsigned)
       const clientSignatureX = 50
