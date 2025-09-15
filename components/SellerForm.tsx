@@ -345,7 +345,8 @@ export default function SellerForm() {
           walmart_address: formData.seller_name ? 
             `${formData.seller_name} - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619` : 
             `Seller Name - WMT Returns - STE-${steCode}\n295 Whitehead Road\nHamilton NJ 08619`,
-          kyc_documents: kycDocumentsBase64
+          kyc_documents: kycDocumentsBase64,
+          formData: formData
         })
       })
       
