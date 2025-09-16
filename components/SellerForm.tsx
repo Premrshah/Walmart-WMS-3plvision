@@ -859,10 +859,10 @@ export default function SellerForm() {
                    
                    {/* File Upload Fields */}
                    <div className="space-y-4">
-                     {/* Business License Upload */}
+                     {/* Business License or Certificate of Incorporation Upload */}
                      <div className="bg-white border border-blue-200 rounded-lg p-4">
                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                         Business License <span className="text-red-500">*</span>
+                         Business License or Certificate of Incorporation <span className="text-red-500">*</span>
                        </label>
                        <input
                          type="file"

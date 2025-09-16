@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     if (kyc_documents) {
       if (kyc_documents.businessLicense) {
         kycAttachments.push({
-          filename: `Business-License-${seller_name}.${kyc_documents.businessLicense.name.split('.').pop()}`,
+          filename: `Business-License-or-Certificate-of-Incorporation-${seller_name}.${kyc_documents.businessLicense.name.split('.').pop()}`,
           content: Buffer.from(kyc_documents.businessLicense.data, 'base64'),
           contentType: kyc_documents.businessLicense.type,
         })
